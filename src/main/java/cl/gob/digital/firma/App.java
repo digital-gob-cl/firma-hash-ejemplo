@@ -8,16 +8,17 @@ import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.Base64;
+import java.util.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.io.OutputStream;
-import java.lang.reflect.Array;
 import java.nio.charset.StandardCharsets;
+
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
+
 import java.io.FileOutputStream;
-import com.itextpdf.text.DocumentException;
+
 import com.itextpdf.text.pdf.PdfDate;
 import com.itextpdf.text.pdf.PdfSignatureAppearance;
 import com.itextpdf.text.pdf.PdfStamper;
@@ -26,26 +27,28 @@ import com.itextpdf.text.pdf.PdfDictionary;
 import com.itextpdf.text.pdf.PdfName;
 import com.itextpdf.text.pdf.PdfReader;
 import com.itextpdf.text.pdf.PdfSignature;
+
 import java.nio.file.Path;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+
 import com.google.gson.Gson;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.Map;
+import lombok.Getter;
+import lombok.Setter;
 
-public class App
-{
-    public static final String ENTITY = "Subsecretaría General de la Presidencia";
-    public static final String RUN ="22222222";
-    public static final String PURPOSE = "Desatendido";
-    public static final String SECRET_KEY = "27a216342c744f89b7b82fa290519ba0";
-    public static final String ENDPOINT_API = "https://api.firma.cert.digital.gob.cl/firma/v2/files/tickets";
+public class App {
+    //Variables de ambiente a configurar, ver archivo readme.
+    public static final String ENTITY = System.getenv("ENTITY");
+    public static final String API_TOKEN_KEY = System.getenv("API_TOKEN_KEY");
+    public static final String RUN = System.getenv("RUN");
+    public static final String PURPOSE = System.getenv("PURPOSE");
+    public static final String SECRET_KEY = System.getenv("SECRET_KEY");
+    public static final String ENDPOINT_API = System.getenv("ENDPOINT_API");
 
-    public static final String PDF_PATH = "/Users/sebavidal/Downloads/pdf-de-prueba-original.pdf";
+    //Ruta local del archivo de ejemplo a firmar
+    public static final String PDF_PATH = "/Users/sfuentealba/Downloads/example.pdf";
 
-    public static void main( String[] args )
-    {
+    public static void main(String[] args) {
         // leer el archivo desde PDF_ORIGINAL y pasarlo a byte[]
         try {
             // crear un nuevo archivo igual al original y guardarlo en PDF_FOLDER_PATH
@@ -53,7 +56,7 @@ public class App
             Path parentDirectoryPath = originalPath.getParent();
             String originalFileName = originalPath.getFileName().toString();
             String currentDateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
-            String newFileName = currentDateTime +"-"+ originalFileName;
+            String newFileName = currentDateTime + "-" + originalFileName;
             Path newFilePath = parentDirectoryPath.resolve(newFileName);
 
             if (Files.exists(newFilePath)) {
@@ -62,13 +65,12 @@ public class App
 
             Files.copy(originalPath, newFilePath);
 
-            byte [] pdf = Files.readAllBytes(Paths.get(newFilePath.toUri()));
+            byte[] pdf = Files.readAllBytes(Paths.get(newFilePath.toUri()));
             PdfReader reader = new PdfReader(pdf);
-            ByteArrayOutputStream bos=new ByteArrayOutputStream();
-            long initTime = System.currentTimeMillis();
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
             PdfSignatureAppearance appearance;
             try {
-                appearance = generateAppearance(reader, bos, initTime);
+                appearance = generateAppearance(reader, bos);
 
                 // obtener hash en base64 del archivo
                 String hash = getHash(appearance);
@@ -111,20 +113,20 @@ public class App
         // Crear el jwt para el token
         String token = createJWT();
 
-        Map<String, Object> requestBody = new HashMap<String, Object>();
+        Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("token", token);
-        requestBody.put("api_token_key", "sandbox");
+        requestBody.put("api_token_key", API_TOKEN_KEY);
 
         // crear primer hash (se debe agregar uno por cada archivo que se envia)
-        Map<String, Object> hash1 = new HashMap<String, Object>();
+        Map<String, Object> hash1 = new HashMap<>();
         hash1.put("content-type", "application/pdf");
         hash1.put("content", hash);
 
-        // crear arreglo de hashes
-        Map<String, Object>[] hashes = (Map<String, Object>[]) Array.newInstance(Map.class, 1);
-        hashes[0] = hash1;
+        // crear lista de hashes
+        List<Map<String, Object>> hashes = new ArrayList<>();
+        hashes.add(hash1);
 
-        // agregar arreglo de hashes al requestBody
+        // agregar hashes al requestBody
         requestBody.put("hashes", hashes);
 
         Gson gson = new Gson();
@@ -145,13 +147,13 @@ public class App
         System.out.println("Leyendo respuesta del endpoint");
         BufferedReader in = new BufferedReader(new InputStreamReader(con.getInputStream()));
         String inputLine;
-        StringBuffer response = new StringBuffer();
+        StringBuilder response = new StringBuilder();
         while ((inputLine = in.readLine()) != null) {
             response.append(inputLine);
         }
         in.close();
 
-        if(statusCode == 200) {
+        if (statusCode == 200) {
             System.out.println("Llamada al endpoint exitosa, se retornara el content del hash firmado");
 
             Gson gsonResponse = new Gson();
@@ -169,17 +171,17 @@ public class App
     public static String createJWT() {
         // Crear el JWT
         String token = null;
-        // esto permite que la fecha del token siempre sea valida
+        // En este caso se suma 5 minutos a la fecha actual, esto permite que la fecha del token siempre sea valida
         String expiration_date_time = LocalDateTime.now().plusMinutes(5).format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"));
         try {
             String jwtToken = Jwts.builder()
-                .claim("entity", ENTITY)
-                .claim("run", RUN)
-                .claim("expiration", expiration_date_time)
-                .claim("purpose", PURPOSE)
-                .setIssuedAt(new Date())
-                .signWith(SignatureAlgorithm.HS256, SECRET_KEY.getBytes("UTF-8"))
-                .compact();
+                    .claim("entity", ENTITY)
+                    .claim("run", RUN)
+                    .claim("expiration", expiration_date_time)
+                    .claim("purpose", PURPOSE)
+                    .setIssuedAt(new Date())
+                    .signWith(SignatureAlgorithm.HS256, SECRET_KEY.getBytes(StandardCharsets.UTF_8))
+                    .compact();
 
             System.out.println("Token generado: " + jwtToken);
             token = jwtToken;
@@ -196,13 +198,13 @@ public class App
         try {
             InputStream signable = appearance.getRangeStream();
             byte[] bufsig = new byte[8192];
-			MessageDigest mdig = MessageDigest.getInstance("SHA-256");
+            MessageDigest mdig = MessageDigest.getInstance("SHA-256");
 
             int n;
             while ((n = signable.read(bufsig)) > 0) {
                 mdig.update(bufsig, 0, n);
             }
-            byte hash[]  = mdig.digest();
+            byte[] hash = mdig.digest();
             hashBase64 = Base64.getEncoder().encodeToString(hash);
         } catch (Exception e) {
             // TODO Auto-generated catch block
@@ -211,19 +213,19 @@ public class App
         return hashBase64;
     }
 
-    public static PdfSignatureAppearance generateAppearance(PdfReader reader, ByteArrayOutputStream bos, long initTime)throws Exception {
-        PdfStamper stamper=PdfStamper.createSignature(reader, bos, '\0', null, true);
+    public static PdfSignatureAppearance generateAppearance(PdfReader reader, ByteArrayOutputStream bos) throws Exception {
+        PdfStamper stamper = PdfStamper.createSignature(reader, bos, '\0', null, true);
         PdfSignatureAppearance appearance = stamper.getSignatureAppearance();
 
         int contentEstimated = 15000;
         PdfSignature dic = new PdfSignature(PdfName.ADOBE_PPKLITE, new PdfName("adbe.pkcs7.detached"));
         dic.setReason(appearance.getReason());
-	   	dic.setLocation(appearance.getLocation());
-	   	dic.setContact(appearance.getContact());
-	   	dic.setDate(new PdfDate(appearance.getSignDate()));
-	   	appearance.setCryptoDictionary(dic);
-		HashMap<PdfName,Integer> exc = new HashMap<PdfName, Integer>();
-		exc.put(PdfName.CONTENTS, new Integer(contentEstimated * 2 + 2));
+        dic.setLocation(appearance.getLocation());
+        dic.setContact(appearance.getContact());
+        dic.setDate(new PdfDate(appearance.getSignDate()));
+        appearance.setCryptoDictionary(dic);
+        HashMap<PdfName, Integer> exc = new HashMap<>();
+        exc.put(PdfName.CONTENTS, contentEstimated * 2 + 2);
 
         try {
             appearance.preClose(exc);
@@ -234,88 +236,31 @@ public class App
         return appearance;
     }
 
-    public static PdfStamper createPdfStamperSignature(PdfReader pdfReader, ByteArrayOutputStream byteArrayOutputStream) {
-        PdfStamper pdfStamper = null;
-        try {
-            pdfStamper = PdfStamper.createSignature(pdfReader, byteArrayOutputStream, '\0', null, true);
-            pdfStamper.getWriter().setCompressionLevel(5);
-            pdfStamper.setFullCompression();
-        } catch(IOException e) {
-            e.printStackTrace();
-        } catch (DocumentException e) {
-            // TODO Auto-generated catch block
-            e.printStackTrace();
-        }
-        return pdfStamper;
-    }
-
+    @Getter
+    @Setter
     static class responseToJson {
         private Hash[] hashes;
         private Metadata metadata;
         private long idSolicitud;
-
-        public Hash[] getHashes() {
-            return hashes;
-        }
-
-        public Metadata getMetadata() {
-            return metadata;
-        }
-
-        public long getIdSolicitud() {
-            return idSolicitud;
-        }
     }
 
+    @Getter
+    @Setter
     static class Hash {
         private String content;
         private String status;
         private String contentType;
         private String documentStatus;
         private String hashOriginal;
-
-        public String getContent() {
-            return content;
-        }
-
-        public String getStatus() {
-            return status;
-        }
-
-        public String getContentType() {
-            return contentType;
-        }
-
-        public String getDocumentStatus() {
-            return documentStatus;
-        }
-
-        public String getHashOriginal() {
-            return hashOriginal;
-        }
     }
 
+    @Getter
+    @Setter
     static class Metadata {
         private boolean otpExpired;
         private int hashesSigned;
         private int signedFailed;
         private int hashesReceived;
-
-        public boolean isOtpExpired() {
-            return otpExpired;
-        }
-
-        public int getHashesSigned() {
-            return hashesSigned;
-        }
-
-        public int getSignedFailed() {
-            return signedFailed;
-        }
-
-        public int getHashesReceived() {
-            return hashesReceived;
-        }
     }
 
 }
